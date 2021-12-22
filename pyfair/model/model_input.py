@@ -4,6 +4,7 @@ import scipy.stats
 
 import numpy as np
 import pandas as pd
+import math
 
 from ..utility.fair_exception import FairException
 from ..utility.beta_pert import FairBetaPert
@@ -42,12 +43,15 @@ class FairDataInput(object):
             'gamma'   : self._gen_pert,
             'mean'    : self._gen_normal,
             'stdev'   : self._gen_normal,
+            'ln_high' : self._gen_lognormal_90cl,
+            'ln_low'  : self._gen_lognormal_90cl,
         }
         # List of keywords with function keys
         self._required_keywords = {
             self._gen_constant: ['constant'],
             self._gen_pert    : ['low', 'mode', 'high'],
             self._gen_normal  : ['mean', 'stdev'],
+            self._gen_lognormal_90cl : ['ln_high', 'ln_low']
         }  
         # Storage of inputs
         self._supplied_values = {}
@@ -94,7 +98,7 @@ class FairDataInput(object):
         for keyword, value in kwargs.items():
             # Two conditions
             value_is_less_than_zero = value < 0
-            keyword_is_relevant = keyword in ['mean', 'constant', 'low', 'mode', 'high']
+            keyword_is_relevant = keyword in ['mean', 'constant', 'low', 'mode', 'high', 'ln_low', 'ln_high']
             # Test conditions
             if keyword_is_relevant and value_is_less_than_zero:
                 raise FairException('"{}" is less than zero.'.format(keyword))
@@ -331,6 +335,21 @@ class FairDataInput(object):
         """Geneates random normally-distributed array of size `count`"""
         normal = scipy.stats.norm(loc=kwargs['mean'], scale=kwargs['stdev'])
         rvs = normal.rvs(count)
+        return rvs
+
+    def _gen_lognormal_90cl(self, count, **kwargs):
+        """Geneates random log-normal distributed array of size `count`"""
+        lnminValue = math.log(kwargs['ln_low'])
+        lnmaxValue = math.log(kwargs['ln_high'])
+
+        # If a 95% confidence interval is available for an absolute measure of intervention effect 
+        # (e.g. SMD, risk difference, rate difference), then the standard error can be calculated as
+        #   SE = (upper limit – lower limit) / 3.92.
+        # For 90% confidence intervals divide by 3.29 rather than 3.92; for 99% confidence intervals divide by 5.15.
+        sigma = (lnmaxValue - lnminValue) / 3.29
+        #sigma = (lnmaxValue - lnminValue) / 5.15
+        mu = (lnmaxValue + lnminValue) / 2
+        rvs = scipy.stats.lognorm.rvs(sigma, scale=math.exp(mu), size=count)
         return rvs
 
     def _gen_pert(self, count, **kwargs):
